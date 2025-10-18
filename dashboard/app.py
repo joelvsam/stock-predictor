@@ -17,31 +17,53 @@ st.write("Predict next-day closing prices using Linear Regression & XGBoost")
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):", "AAPL")
 
 # ------------------------
-# Fetch data
+# Fetch data with caching
 # ------------------------
-data = yf.download(ticker, period="5y", interval="1d")
-df = data.copy()
-df.dropna(inplace=True)
+@st.cache_data
+def load_stock_data(ticker: str, period="5y", interval="1d") -> pd.DataFrame:
+    data = yf.download(ticker, period=period, interval=interval)
+    data.dropna(inplace=True)
+    return data
+
+df = load_stock_data(ticker)
 
 # ------------------------
-# Feature Engineering
+# Feature Engineering with caching
 # ------------------------
-close_series = df["Close"].squeeze()
-df["SMA_20"] = ta.trend.sma_indicator(close_series, window=20)
-df["SMA_50"] = ta.trend.sma_indicator(close_series, window=50)
-df["EMA_20"] = ta.trend.ema_indicator(close_series, window=20)
-df["EMA_50"] = ta.trend.ema_indicator(close_series, window=50)
-df["RSI_14"] = ta.momentum.rsi(close_series, window=14)
-df["MACD"] = ta.trend.macd(close_series)
-df["MACD_Signal"] = ta.trend.macd_signal(close_series)
-bollinger = ta.volatility.BollingerBands(close_series, window=20, window_dev=2)
-df["BB_High"] = bollinger.bollinger_hband()
-df["BB_Low"] = bollinger.bollinger_lband()
-df["BB_Width"] = df["BB_High"] - df["BB_Low"]
-df["Return_1D"] = df["Close"].pct_change()
-df["Return_5D"] = df["Close"].pct_change(5)
-df["Volume_Change"] = df["Volume"].pct_change()
-df.dropna(inplace=True)
+@st.cache_data
+def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
+    df = df.copy()
+    close_series = df["Close"].squeeze()
+    
+    # Moving Averages
+    df["SMA_20"] = ta.trend.sma_indicator(close_series, window=20)
+    df["SMA_50"] = ta.trend.sma_indicator(close_series, window=50)
+    df["EMA_20"] = ta.trend.ema_indicator(close_series, window=20)
+    df["EMA_50"] = ta.trend.ema_indicator(close_series, window=50)
+    
+    # Momentum Indicators
+    df["RSI_14"] = ta.momentum.rsi(close_series, window=14)
+    df["MACD"] = ta.trend.macd(close_series)
+    df["MACD_Signal"] = ta.trend.macd_signal(close_series)
+    
+    # Bollinger Bands
+    bollinger = ta.volatility.BollingerBands(close_series, window=20, window_dev=2)
+    df["BB_High"] = bollinger.bollinger_hband()
+    df["BB_Low"] = bollinger.bollinger_lband()
+    df["BB_Width"] = df["BB_High"] - df["BB_Low"]
+    
+    # Price & Volume Changes
+    df["Return_1D"] = df["Close"].pct_change()
+    df["Return_5D"] = df["Close"].pct_change(5)
+    df["Volume_Change"] = df["Volume"].pct_change()
+    
+    # Target for next-day price
+    df["Target"] = df["Close"].shift(-1)
+    df.dropna(inplace=True)
+    
+    return df
+
+df = engineer_features(df)
 
 features = [
     "SMA_20", "SMA_50", "EMA_20", "EMA_50",
@@ -50,17 +72,13 @@ features = [
     "Return_1D", "Return_5D", "Volume_Change"
 ]
 
-# Target for next-day price
-df["Target"] = df["Close"].shift(-1)
-df.dropna(inplace=True)
-
 X = df[features]
 y = df["Target"]
 
 # ------------------------
 # Train/Test Split
 # ------------------------
-split_index = int(len(df)*0.8)
+split_index = int(len(df) * 0.8)
 X_train, X_test = X[:split_index], X[split_index:]
 y_train, y_test = y[:split_index], y[split_index:]
 
