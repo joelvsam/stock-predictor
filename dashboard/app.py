@@ -2,11 +2,11 @@ import streamlit as st
 import yfinance as yf
 import pandas as pd
 import numpy as np
-import matplotlib.pyplot as plt
 import ta
 from sklearn.linear_model import LinearRegression
 from xgboost import XGBRegressor
 from sklearn.metrics import mean_squared_error, r2_score
+import plotly.graph_objects as go
 
 # ------------------------
 # Streamlit App Title
@@ -98,17 +98,33 @@ st.write(f"**Linear Regression** → RMSE = {rmse_lr:.2f}, R² = {r2_lr:.3f}")
 st.write(f"**XGBoost** → RMSE = {rmse_xgb:.2f}, R² = {r2_xgb:.3f}")
 
 # ------------------------
-# Plot Predictions
+# Interactive Plot with Plotly
 # ------------------------
-plt.figure(figsize=(12,6))
-plt.plot(y_test.values, label="Actual Close", color="black")
-plt.plot(y_pred_lr, label="Linear Regression", color="blue")
-plt.plot(y_pred_xgb, label="XGBoost", color="green")
-plt.title(f"{ticker} - Next-Day Close Prediction")
-plt.xlabel("Test Data Points")
-plt.ylabel("Price")
-plt.legend()
-st.pyplot(plt)
+fig = go.Figure()
+
+fig.add_trace(go.Scatter(
+    x=y_test.index, y=y_test.values,
+    mode="lines", name="Actual Close", line=dict(color="black")
+))
+
+fig.add_trace(go.Scatter(
+    x=y_test.index, y=y_pred_lr,
+    mode="lines", name="Linear Regression", line=dict(color="blue")
+))
+
+fig.add_trace(go.Scatter(
+    x=y_test.index, y=y_pred_xgb,
+    mode="lines", name="XGBoost", line=dict(color="green")
+))
+
+fig.update_layout(
+    title=f"{ticker} - Next-Day Close Prediction",
+    xaxis_title="Date",
+    yaxis_title="Price",
+    hovermode="x unified"
+)
+
+st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------
 # Next-Day Trend Suggestion
