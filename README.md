@@ -111,6 +111,9 @@ This will open a new tab in your web browser showing the Stock Price Prediction 
 
 ---
 
+<img width="390" height="590" alt="image" src="https://github.com/user-attachments/assets/240ac084-1801-4b59-bcae-cae6901c3aae" />
+
+
 ## Code Structure Overview
 
 - Data Fetching: Uses yfinance to get daily stock price data from Yahoo Finance.
