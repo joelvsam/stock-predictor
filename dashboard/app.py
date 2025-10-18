@@ -17,53 +17,31 @@ st.write("Predict next-day closing prices using Linear Regression & XGBoost")
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):", "AAPL")
 
 # ------------------------
-# Fetch data with caching
+# Fetch data
 # ------------------------
-@st.cache_data
-def load_stock_data(ticker: str, period="5y", interval="1d") -> pd.DataFrame:
-    data = yf.download(ticker, period=period, interval=interval)
-    data.dropna(inplace=True)
-    return data
-
-df = load_stock_data(ticker)
+data = yf.download(ticker, period="5y", interval="1d")
+df = data.copy()
+df.dropna(inplace=True)
 
 # ------------------------
-# Feature Engineering with caching
+# Feature Engineering
 # ------------------------
-@st.cache_data
-def engineer_features(df: pd.DataFrame) -> pd.DataFrame:
-    df = df.copy()
-    close_series = df["Close"].squeeze()
-    
-    # Moving Averages
-    df["SMA_20"] = ta.trend.sma_indicator(close_series, window=20)
-    df["SMA_50"] = ta.trend.sma_indicator(close_series, window=50)
-    df["EMA_20"] = ta.trend.ema_indicator(close_series, window=20)
-    df["EMA_50"] = ta.trend.ema_indicator(close_series, window=50)
-    
-    # Momentum Indicators
-    df["RSI_14"] = ta.momentum.rsi(close_series, window=14)
-    df["MACD"] = ta.trend.macd(close_series)
-    df["MACD_Signal"] = ta.trend.macd_signal(close_series)
-    
-    # Bollinger Bands
-    bollinger = ta.volatility.BollingerBands(close_series, window=20, window_dev=2)
-    df["BB_High"] = bollinger.bollinger_hband()
-    df["BB_Low"] = bollinger.bollinger_lband()
-    df["BB_Width"] = df["BB_High"] - df["BB_Low"]
-    
-    # Price & Volume Changes
-    df["Return_1D"] = df["Close"].pct_change()
-    df["Return_5D"] = df["Close"].pct_change(5)
-    df["Volume_Change"] = df["Volume"].pct_change()
-    
-    # Target for next-day price
-    df["Target"] = df["Close"].shift(-1)
-    df.dropna(inplace=True)
-    
-    return df
-
-df = engineer_features(df)
+close_series = df["Close"].squeeze()
+df["SMA_20"] = ta.trend.sma_indicator(close_series, window=20)
+df["SMA_50"] = ta.trend.sma_indicator(close_series, window=50)
+df["EMA_20"] = ta.trend.ema_indicator(close_series, window=20)
+df["EMA_50"] = ta.trend.ema_indicator(close_series, window=50)
+df["RSI_14"] = ta.momentum.rsi(close_series, window=14)
+df["MACD"] = ta.trend.macd(close_series)
+df["MACD_Signal"] = ta.trend.macd_signal(close_series)
+bollinger = ta.volatility.BollingerBands(close_series, window=20, window_dev=2)
+df["BB_High"] = bollinger.bollinger_hband()
+df["BB_Low"] = bollinger.bollinger_lband()
+df["BB_Width"] = df["BB_High"] - df["BB_Low"]
+df["Return_1D"] = df["Close"].pct_change()
+df["Return_5D"] = df["Close"].pct_change(5)
+df["Volume_Change"] = df["Volume"].pct_change()
+df.dropna(inplace=True)
 
 features = [
     "SMA_20", "SMA_50", "EMA_20", "EMA_50",
@@ -72,13 +50,17 @@ features = [
     "Return_1D", "Return_5D", "Volume_Change"
 ]
 
+# Target for next-day price
+df["Target"] = df["Close"].shift(-1)
+df.dropna(inplace=True)
+
 X = df[features]
 y = df["Target"]
 
 # ------------------------
 # Train/Test Split
 # ------------------------
-split_index = int(len(df) * 0.8)
+split_index = int(len(df)*0.8)
 X_train, X_test = X[:split_index], X[split_index:]
 y_train, y_test = y[:split_index], y[split_index:]
 
@@ -89,7 +71,7 @@ lr_model = LinearRegression()
 lr_model.fit(X_train, y_train)
 y_pred_lr = lr_model.predict(X_test)
 
-xgb_model = XGBRegressor(n_estimators=100, learning_rate=0.1, max_depth=3, random_state=42)
+xgb_model = XGBRegressor(n_estimators=200, learning_rate=0.05, max_depth=3, random_state=42)
 xgb_model.fit(X_train, y_train)
 y_pred_xgb = xgb_model.predict(X_test)
 
@@ -105,8 +87,8 @@ rmse_xgb = np.sqrt(mse_xgb)
 r2_xgb = r2_score(y_test, y_pred_xgb)
 
 st.subheader("Model Performance")
-st.write(f"Linear Regression: RMSE={rmse_lr:.2f}, R²={r2_lr:.3f}")
-st.write(f"XGBoost: RMSE={rmse_xgb:.2f}, R²={r2_xgb:.3f}")
+st.write(f"**Linear Regression** → RMSE = {rmse_lr:.2f}, R² = {r2_lr:.3f}")
+st.write(f"**XGBoost** → RMSE = {rmse_xgb:.2f}, R² = {r2_xgb:.3f}")
 
 # ------------------------
 # Plot predictions
@@ -120,3 +102,24 @@ plt.xlabel("Test Data Points")
 plt.ylabel("Price")
 plt.legend()
 st.pyplot(plt)
+
+# ------------------------
+# Next-Day Trend Suggestion
+# ------------------------
+last_close = df["Close"].iloc[-1].item()
+pred_next_close_lr = y_pred_lr[-1].item()
+pred_next_close_xgb = y_pred_xgb[-1].item()
+
+# Use Linear Regression as main signal
+if pred_next_close_lr > last_close:
+    trend_msg = "Price expected to rise."
+elif pred_next_close_lr < last_close:
+    trend_msg = "Price expected to fall."
+else:
+    trend_msg = "Price expected to remain stable."
+
+st.subheader("Next-Day Price Trend (Based on Linear Regression)")
+st.write(f"Last Close: {last_close:.2f}")
+st.write(f"Linear Regression Predicted Next Close: {pred_next_close_lr:.2f}")
+st.write(f"XGBoost Predicted Next Close: {pred_next_close_xgb:.2f}")
+st.write(trend_msg)
