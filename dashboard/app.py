@@ -104,7 +104,7 @@ fig = go.Figure()
 
 fig.add_trace(go.Scatter(
     x=y_test.index, y=y_test.values,
-    mode="lines", name="Actual Close", line=dict(color="black")
+    mode="lines", name="Actual Close", line=dict(color="yellow")
 ))
 
 fig.add_trace(go.Scatter(
