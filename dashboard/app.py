@@ -37,9 +37,24 @@ st.sidebar.markdown("""
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):", "AAPL")
 
 # ------------------------
-# Fetch Stock Data
+# User Input: Start Date (via Calendar)
 # ------------------------
-data = yf.download(ticker, period="5y", interval="1d")
+import datetime
+default_start = datetime.date.today() - datetime.timedelta(days=365 * 5)  # 5 years ago
+start_date = st.date_input("Select Start Date:", value=default_start)
+
+# ------------------------
+# Fetch Stock Data (custom start date to today)
+# ------------------------
+end_date = datetime.date.today()
+
+data = yf.download(ticker, start=start_date, end=end_date, interval="1d")
+
+# Handle errors
+if data.empty:
+    st.error("Failed to retrieve data. Please check the ticker symbol or select a valid date range.")
+    st.stop()
+
 df = data.copy()
 df.dropna(inplace=True)
 
@@ -170,14 +185,21 @@ st.write(f"XGBoost → RMSE = {rmse_xgb:.2f}, R² = {r2_xgb:.3f}")
 st.write(f"LSTM → RMSE = {rmse_lstm:.2f}, R² = {r2_lstm:.3f}")
 
 # ------------------------
-# Model Selection for Visualization
+# Model Selection for Visualization (Checkboxes in a Single Line)
 # ------------------------
-selected_models = st.multiselect(
-    "Select models to visualize:",
-    ["Linear Regression", "XGBoost", "LSTM"],
-    default=["Linear Regression", "XGBoost", "LSTM"]
-)
+st.subheader("Select Models to Visualize")
 
+# Use columns to arrange checkboxes horizontally
+col1, col2, col3 = st.columns(3)
+
+with col1:
+    show_lr = st.checkbox("Linear Regression", value=True)
+
+with col2:
+    show_xgb = st.checkbox("XGBoost", value=True)
+
+with col3:
+    show_lstm = st.checkbox("LSTM", value=True)
 
 # ------------------------
 # Interactive Plot with Plotly
@@ -188,19 +210,19 @@ fig.add_trace(go.Scatter(
     mode="lines", name="Actual Close", line=dict(color="yellow", width=3)
 ))
 
-if "Linear Regression" in selected_models:
+if show_lr:
     fig.add_trace(go.Scatter(
         x=y_test.index, y=y_pred_lr,
         mode="lines", name="Linear Regression", line=dict(color="blue", width=3)
     ))
 
-if "XGBoost" in selected_models:
+if show_xgb:
     fig.add_trace(go.Scatter(
         x=y_test.index, y=y_pred_xgb,
         mode="lines", name="XGBoost", line=dict(color="green", width=3)
     ))
 
-if "LSTM" in selected_models:
+if show_lstm:
     fig.add_trace(go.Scatter(
         x=seq_dates_test, y=y_pred_lstm,
         mode="lines", name="LSTM", line=dict(color="red", width=3)
