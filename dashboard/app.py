@@ -20,6 +20,18 @@ st.title("Stock Price Prediction Dashboard")
 st.write("Predict next-day closing prices using Linear Regression, XGBoost, and LSTM")
 
 # ------------------------
+# Sidebar Glossary
+# ------------------------
+st.sidebar.title("Feature Glossary")
+st.sidebar.markdown("""
+- **SMA (Simple Moving Average):** Average of closing prices over a set period.
+- **EMA (Exponential Moving Average):** Weighted average giving more importance to recent prices.
+- **RSI (Relative Strength Index):** Momentum indicator (0–100) showing overbought/oversold conditions.
+- **MACD (Moving Average Convergence Divergence):** Trend indicator using EMAs.
+- **Bollinger Bands:** Volatility bands around a moving average.
+""")
+
+# ------------------------
 # User Input: Ticker
 # ------------------------
 ticker = st.text_input("Enter Stock Ticker (e.g., AAPL):", "AAPL")
@@ -66,73 +78,78 @@ df.dropna(inplace=True)
 X = df[features]
 y = df["Target"]
 
-# ------------------------
-# Train/Test Split (shared split index)
-# ------------------------
 split_index = int(len(df) * 0.8)
 X_train, X_test = X[:split_index], X[split_index:]
 y_train, y_test = y[:split_index], y[split_index:]
 
 # ------------------------
-# Train Models: Linear Regression & XGBoost
+# Cached Training Function
 # ------------------------
-lr_model = LinearRegression()
-lr_model.fit(X_train, y_train)
-y_pred_lr = lr_model.predict(X_test)
+@st.cache_resource
+def train_all_models(X_train, y_train, X_test, y_test, df, split_index):
+    # Linear Regression
+    lr_model = LinearRegression()
+    lr_model.fit(X_train, y_train)
+    y_pred_lr = lr_model.predict(X_test)
 
-xgb_model = XGBRegressor(n_estimators=200, learning_rate=0.05, max_depth=3, random_state=42)
-xgb_model.fit(X_train, y_train)
-y_pred_xgb = xgb_model.predict(X_test)
+    # XGBoost
+    xgb_model = XGBRegressor(n_estimators=200, learning_rate=0.05, max_depth=3, random_state=42)
+    xgb_model.fit(X_train, y_train)
+    y_pred_xgb = xgb_model.predict(X_test)
+
+    # LSTM
+    scaler = MinMaxScaler(feature_range=(0, 1))
+    scaled_close = scaler.fit_transform(df[['Close']].values)
+    seq_length = 60
+
+    def create_sequences(data, seq_len=60):
+        X_seq, y_seq = [], []
+        for i in range(seq_len, len(data)):
+            X_seq.append(data[i - seq_len:i, 0])
+            y_seq.append(data[i, 0])
+        return np.array(X_seq), np.array(y_seq)
+
+    X_seq, y_seq = create_sequences(scaled_close, seq_length)
+    seq_dates = df.index[seq_length:]
+    seq_split_index = split_index - seq_length
+    if seq_split_index < 1:
+        seq_split_index = int(len(X_seq) * 0.8)
+
+    X_seq_train, X_seq_test = X_seq[:seq_split_index], X_seq[seq_split_index:]
+    y_seq_train, y_seq_test = y_seq[:seq_split_index], y_seq[seq_split_index:]
+    seq_dates_test = seq_dates[seq_split_index:]
+
+    X_seq_train = X_seq_train.reshape((X_seq_train.shape[0], X_seq_train.shape[1], 1))
+    X_seq_test = X_seq_test.reshape((X_seq_test.shape[0], X_seq_test.shape[1], 1))
+
+    lstm_model = Sequential([
+        LSTM(50, return_sequences=True, input_shape=(seq_length, 1)),
+        Dropout(0.2),
+        LSTM(50),
+        Dropout(0.2),
+        Dense(1)
+    ])
+    lstm_model.compile(optimizer='adam', loss='mean_squared_error')
+    lstm_model.fit(X_seq_train, y_seq_train, epochs=10, batch_size=32, verbose=0)
+
+    y_pred_lstm_scaled = lstm_model.predict(X_seq_test, verbose=0)
+    y_pred_lstm = scaler.inverse_transform(y_pred_lstm_scaled.reshape(-1, 1)).flatten()
+    y_test_lstm = scaler.inverse_transform(y_seq_test.reshape(-1, 1)).flatten()
+
+    return (lr_model, y_pred_lr,
+            xgb_model, y_pred_xgb,
+            lstm_model, y_pred_lstm, seq_dates_test,
+            scaler, scaled_close, seq_length, y_test_lstm)
 
 # ------------------------
-# LSTM Pipeline (using Close-only sequences)
+# Train all models once (cached)
 # ------------------------
-# Scale close prices between 0 and 1
-scaler = MinMaxScaler(feature_range=(0, 1))
-scaled_close = scaler.fit_transform(df[['Close']].values)
-
-# Create sequences of seq_length days to predict the next day
-seq_length = 60
-
-def create_sequences(data, seq_len=60):
-    X_seq, y_seq = [], []
-    for i in range(seq_len, len(data)):
-        X_seq.append(data[i - seq_len:i, 0])
-        y_seq.append(data[i, 0])  # next day's scaled close
-    return np.array(X_seq), np.array(y_seq)
-
-X_seq, y_seq = create_sequences(scaled_close, seq_length)
-# Corresponding dates for each y_seq point
-seq_dates = df.index[seq_length:]
-
-# Align split to sequences: subtract seq_length from split_index
-seq_split_index = split_index - seq_length
-if seq_split_index < 1:
-    seq_split_index = int(len(X_seq) * 0.8)
-
-X_seq_train, X_seq_test = X_seq[:seq_split_index], X_seq[seq_split_index:]
-y_seq_train, y_seq_test = y_seq[:seq_split_index], y_seq[seq_split_index:]
-seq_dates_train, seq_dates_test = seq_dates[:seq_split_index], seq_dates[seq_split_index:]
-
-# Reshape to [samples, timesteps, features]
-X_seq_train = X_seq_train.reshape((X_seq_train.shape[0], X_seq_train.shape[1], 1))
-X_seq_test = X_seq_test.reshape((X_seq_test.shape[0], X_seq_test.shape[1], 1))
-
-# Build and train LSTM model
-lstm_model = Sequential([
-    LSTM(50, return_sequences=True, input_shape=(seq_length, 1)),
-    Dropout(0.2),
-    LSTM(50),
-    Dropout(0.2),
-    Dense(1)
-])
-lstm_model.compile(optimizer='adam', loss='mean_squared_error')
-lstm_model.fit(X_seq_train, y_seq_train, epochs=10, batch_size=32, verbose=0)
-
-# Predict and inverse transform
-y_pred_lstm_scaled = lstm_model.predict(X_seq_test, verbose=0)
-y_pred_lstm = scaler.inverse_transform(y_pred_lstm_scaled.reshape(-1, 1)).flatten()
-y_test_lstm = scaler.inverse_transform(y_seq_test.reshape(-1, 1)).flatten()
+(lr_model, y_pred_lr,
+ xgb_model, y_pred_xgb,
+ lstm_model, y_pred_lstm, seq_dates_test,
+ scaler, scaled_close, seq_length, y_test_lstm) = train_all_models(
+    X_train, y_train, X_test, y_test, df, split_index
+)
 
 # ------------------------
 # Model Metrics
@@ -153,34 +170,45 @@ st.write(f"XGBoost → RMSE = {rmse_xgb:.2f}, R² = {r2_xgb:.3f}")
 st.write(f"LSTM → RMSE = {rmse_lstm:.2f}, R² = {r2_lstm:.3f}")
 
 # ------------------------
+# Model Selection for Visualization
+# ------------------------
+selected_models = st.multiselect(
+    "Select models to visualize:",
+    ["Linear Regression", "XGBoost", "LSTM"],
+    default=["Linear Regression", "XGBoost", "LSTM"]
+)
+
+
+# ------------------------
 # Interactive Plot with Plotly
 # ------------------------
 fig = go.Figure()
-
-# Actual (aligned to LR/XGB test)
 fig.add_trace(go.Scatter(
     x=y_test.index, y=y_test.values,
     mode="lines", name="Actual Close", line=dict(color="yellow", width=3)
 ))
 
-# Linear Regression
-fig.add_trace(go.Scatter(
-    x=y_test.index, y=y_pred_lr,
-    mode="lines", name="Linear Regression", line=dict(color="blue", width=3)
-))
+if "Linear Regression" in selected_models:
+    fig.add_trace(go.Scatter(
+        x=y_test.index, y=y_pred_lr,
+        mode="lines", name="Linear Regression", line=dict(color="blue", width=3)
+    ))
 
-# XGBoost
-fig.add_trace(go.Scatter(
-    x=y_test.index, y=y_pred_xgb,
-    mode="lines", name="XGBoost", line=dict(color="green", width=3)
-))
+if "XGBoost" in selected_models:
+    fig.add_trace(go.Scatter(
+        x=y_test.index, y=y_pred_xgb,
+        mode="lines", name="XGBoost", line=dict(color="green", width=3)
+    ))
 
-# LSTM (uses its own test date index)
-fig.add_trace(go.Scatter(
-    x=seq_dates_test, y=y_pred_lstm,
-    mode="lines", name="LSTM", line=dict(color="red", width=3)
-))
+if "LSTM" in selected_models:
+    fig.add_trace(go.Scatter(
+        x=seq_dates_test, y=y_pred_lstm,
+        mode="lines", name="LSTM", line=dict(color="red", width=3)
+    ))
 
+# ------------------------
+# Finalize Plot
+# ------------------------
 fig.update_layout(
     title=f"{ticker} - Next-Day Close Prediction",
     xaxis_title="Date",
@@ -191,27 +219,42 @@ fig.update_layout(
 st.plotly_chart(fig, use_container_width=True)
 
 # ------------------------
-# Next-Day Trend (Neutral, based on Linear Regression)
+# Next-Day Trend (Majority Vote across all models)
 # ------------------------
 last_close = df["Close"].iloc[-1].item()
+
+# Predictions from each model
 pred_next_close_lr = float(y_pred_lr[-1])
 pred_next_close_xgb = float(y_pred_xgb[-1])
 
-# For LSTM next-day prediction:
-# Build the last sequence from the final seq_length closes
+# LSTM next-day prediction
 last_seq = scaled_close[-seq_length:]
 last_seq = last_seq.reshape((1, seq_length, 1))
 next_pred_lstm_scaled = lstm_model.predict(last_seq, verbose=0)
-pred_next_close_lstm = float(scaler.inverse_transform(next_pred_lstm_scaled.reshape(-1, 1)).flatten()[0])
+pred_next_close_lstm = float(
+    scaler.inverse_transform(next_pred_lstm_scaled.reshape(-1, 1)).flatten()[0]
+)
 
-if pred_next_close_lr > last_close:
-    trend_msg = "Predicted trend: upward movement."
-elif pred_next_close_lr < last_close:
-    trend_msg = "Predicted trend: downward movement."
+# Voting mechanism
+votes = []
+for pred in [pred_next_close_lr, pred_next_close_xgb, pred_next_close_lstm]:
+    if pred > last_close:
+        votes.append("up")
+    elif pred < last_close:
+        votes.append("down")
+    else:
+        votes.append("stable")
+
+# Majority decision
+if votes.count("up") > votes.count("down") and votes.count("up") > votes.count("stable"):
+    trend_msg = "Predicted trend: upward movement (majority of models)."
+elif votes.count("down") > votes.count("up") and votes.count("down") > votes.count("stable"):
+    trend_msg = "Predicted trend: downward movement (majority of models)."
 else:
-    trend_msg = "Predicted trend: stable."
+    trend_msg = "Predicted trend: stable or mixed signals."
 
-st.subheader("Next-Day Price Trend (Based on Linear Regression)")
+# Display results
+st.subheader("Next-Day Price Trend (Based on All Models)")
 st.write(f"Last Close: {last_close:.2f}")
 st.write(f"Linear Regression Predicted Next Close: {pred_next_close_lr:.2f}")
 st.write(f"XGBoost Predicted Next Close: {pred_next_close_xgb:.2f}")
