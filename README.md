@@ -110,6 +110,15 @@ This will open a new tab in your web browser showing the Stock Price Prediction 
 5. Analyze Next-Day Trend: See the majority vote prediction for the next day's stock price movement.
 
 ---
+## Screenshots
+
+<img width="845" height="521" alt="image" src="https://github.com/user-attachments/assets/7b5bbf6e-fc1a-4e70-841b-71832c9d320e" />
+<img width="766" height="520" alt="image" src="https://github.com/user-attachments/assets/bb919621-edaf-4a42-a792-4723406bbaee" />
+<img width="616" height="318" alt="image" src="https://github.com/user-attachments/assets/773ed980-e3f0-42c8-8f52-7d69622567f6" />
+
+
+
+
 
 ## Code Structure Overview
 
